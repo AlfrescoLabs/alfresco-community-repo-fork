@@ -42,7 +42,14 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static java.util.concurrent.TimeUnit.MINUTES;
 
 /**
  * Test for ACS-1291 to make it simpler to profile.
@@ -53,18 +60,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Acs1291PerformanceTest extends BaseSpringTest // AbstractContextAwareRepoEvent
 {
     private static final String TEST_NAMESPACE  = "http://www.alfresco.org/test/acs1291";
-
-    // ACS 6.2.2.12             cold: 131507 warm: 145680, 139251, 137775, 132992 (avg 13ms 137441)
-    // ACS 7.0.0 without events cold: 153874 warm: 155765, 152651, 135708, 135833 (avg 14ms 146766 6% slower, but some faster)
-    // ACS 7.0.0                cold: 180066 warm: 184115, 195903, 196393, 180135 (avg 18ms 187322 36% slower)
-
-    private static final int NODES = 10000;
-    private static final long TOTAL_622_TIME = (131507+145680+139251+137775+132992)/5;
-    private static final long TOTAL_700_NO_EVENTS_TIME = (153874+155765+152651+135708+135833)/5;
-    private static final long TOTAL_700_TIME = (180066+184115+195903+196393+180135)/5;
-
-    private static final int BATCH = 100;
-    private static final long BATCH_622_TIME = TOTAL_622_TIME * BATCH / NODES;
 
     @Autowired
     protected RetryingTransactionHelper retryingTransactionHelper;
@@ -91,8 +86,11 @@ public class Acs1291PerformanceTest extends BaseSpringTest // AbstractContextAwa
             }
             return nodeService.getRootNode(storeRef);
         });
+    }
 
-        nodeRef = retryingTransactionHelper.doInTransaction(() -> nodeService.createNode(rootNodeRef,
+    private NodeRef createNode()
+    {
+        return retryingTransactionHelper.doInTransaction(() -> nodeService.createNode(rootNodeRef,
                 ContentModel.ASSOC_CHILDREN, QName.createQName(TEST_NAMESPACE, GUID.generate()),
                 ContentModel.TYPE_CONTENT).getChildRef());
     }
@@ -106,6 +104,19 @@ public class Acs1291PerformanceTest extends BaseSpringTest // AbstractContextAwa
     @Test
     public void updateTitle()
     {
+        // ACS 6.2.2.12             cold: 131507 warm: 145680, 139251, 137775, 132992 (avg 13ms 137441)
+        // ACS 7.0.0 without events cold: 153874 warm: 155765, 152651, 135708, 135833 (avg 14ms 146766 6% slower, but some faster)
+        // ACS 7.0.0                cold: 180066 warm: 184115, 195903, 196393, 180135 (avg 18ms 187322 36% slower)
+        final int NODES = 10000;
+        final long TOTAL_622_TIME = (131507+145680+139251+137775+132992)/5;
+        final long TOTAL_700_NO_EVENTS_TIME = (153874+155765+152651+135708+135833)/5;
+        final long TOTAL_700_TIME = (180066+184115+195903+196393+180135)/5;
+
+        final int BATCH = 100;
+        final long BATCH_622_TIME = TOTAL_622_TIME * BATCH / NODES;
+
+        NodeRef nodeRef = createNode();
+
         long start = System.currentTimeMillis();
         long startOfBatch = start;
         final AtomicInteger i = new AtomicInteger(0);
@@ -144,5 +155,101 @@ public class Acs1291PerformanceTest extends BaseSpringTest // AbstractContextAwa
         }
         long ms = System.currentTimeMillis() - start;
         System.err.println("Performance: " + (((ms*100)/ TOTAL_622_TIME -100)*-1)+"%");
+    }
+
+    // Try and find the throughput limit for the system, so we can compare 6.2.2.12 against 7.0.0
+    // 7.0.0 requests should be slower as they need to wait for activeMQ, but the throughput should be similar.
+    @Test
+    public void rampUpThreads() throws InterruptedException
+    {
+        final long PERIOD_MS = 5000;
+        final long SLOWER_PERIOD_COUNT = 24; // If all batches are slower for 2 minutes stop
+        final int THREAD_EVERY_PERIODS = 5;
+
+        final AtomicBoolean stop = new AtomicBoolean(false);
+        final long start = System.currentTimeMillis();
+        final AtomicLong endOfPeriod = new AtomicLong(start+PERIOD_MS);
+        final AtomicInteger periods = new AtomicInteger(0);
+        final AtomicInteger updates = new AtomicInteger(0);
+        final AtomicInteger threadCount = new AtomicInteger(0);
+        final AtomicLong maxUpdates = new AtomicLong(-1);
+        final AtomicInteger periodsSinceMaxUpdate = new AtomicInteger(0);
+        final AtomicInteger totalUpdates = new AtomicInteger(0);
+
+        ExecutorService executorService = Executors.newCachedThreadPool();
+
+        class UpdateRunnable implements Runnable
+        {
+            @Override
+            public void run()
+            {
+                NodeRef nodeRef = createNode();
+                final AtomicInteger i = new AtomicInteger(0);
+
+                threadCount.incrementAndGet();
+                while (!stop.get())
+                {
+                    retryingTransactionHelper.doInTransaction(() ->
+                    {
+                        String value = "test title " + i.incrementAndGet();
+                        nodeService.setProperty(nodeRef, ContentModel.PROP_TITLE, value);
+                        totalUpdates.incrementAndGet();
+                        return null;
+                    });
+
+                    // Increment the count, start a new period if required and stop if we are no longer getting better.
+                    String message = null;
+                    synchronized (this)
+                    {
+                        int updateCount = updates.getAndIncrement();
+                        long now = System.currentTimeMillis();
+                        long end = endOfPeriod.get();
+                        if (now > end)
+                        {
+                            int period;
+                            int sinceMax;
+                            do
+                            {
+                                period = periods.incrementAndGet();
+                                sinceMax = periodsSinceMaxUpdate.incrementAndGet();
+                                end += PERIOD_MS;
+                                endOfPeriod.set(end);
+                                if (period % THREAD_EVERY_PERIODS == 0)
+                                {
+                                    executorService.submit(new UpdateRunnable());
+                                }
+                            } while (now > end);
+                            updates.set(0);
+
+                            message = period + ": Threads: "+threadCount.get()+" updates:"+updateCount+" "+
+                                    (PERIOD_MS/updateCount) + "ms";
+
+                            if (updateCount >= maxUpdates.get())
+                            {
+                                maxUpdates.set(updateCount);
+                                periodsSinceMaxUpdate.set(0);
+                                message += " ***";
+                            }
+                            else
+                            {
+                                message += " "+sinceMax;
+                                if (sinceMax >= SLOWER_PERIOD_COUNT)
+                                {
+                                    stop.set(true);
+                                    List<Runnable> runnables = executorService.shutdownNow();
+                                }
+                            }
+                        }
+                    }
+                    if (message != null)
+                    {
+                        System.out.println(message);
+                    }
+                }
+            }
+        }
+
+        executorService.submit(new UpdateRunnable());
+        executorService.awaitTermination(60, MINUTES);
     }
 }
