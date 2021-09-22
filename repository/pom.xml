@@ -19,6 +19,12 @@
 
         <dependency>
             <groupId>org.alfresco</groupId>
+            <artifactId>alfresco-grpc-proto</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.alfresco</groupId>
             <artifactId>alfresco-jlan-embed</artifactId>
             <exclusions>
                 <exclusion>

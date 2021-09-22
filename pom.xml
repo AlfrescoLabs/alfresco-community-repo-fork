@@ -13,6 +13,7 @@
     </parent>
 
     <modules>
+        <module>protos</module>
         <module>core</module>
         <module>data-model</module>
         <module>repository</module>
@@ -158,6 +159,13 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>1.40.1</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <!-- Jakarta... -->
             <dependency>
                 <groupId>jakarta.xml.bind</groupId>

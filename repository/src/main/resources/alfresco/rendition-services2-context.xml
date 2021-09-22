@@ -116,6 +116,7 @@
         <property name="strictMimeTypeCheck" value="${transformer.strict.mimetype.check}"/>
         <property name="retryTransformOnDifferentMimeType" value="${content.transformer.retryOn.different.mimetype}"/>
         <property name="shutdownIndicator" ref="shutdownIndicator"></property>
+        <property name="grpcUrl" value="${localTransform.grpc.url}"/>
     </bean>
 
     <bean id="localTransformServiceRegistryJsonObjectMapper" class="com.fasterxml.jackson.databind.ObjectMapper" />

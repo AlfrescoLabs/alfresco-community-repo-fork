@@ -50,7 +50,7 @@ import static org.alfresco.repo.rendition2.RenditionDefinition2.SOURCE_NODE_REF;
  */
 public class LocalTransformImpl extends AbstractLocalTransform
 {
-    private RemoteTransformerClient remoteTransformerClient;
+    private GrpcTransformerClient remoteTransformerClient;
 
     private boolean available = false;
 
@@ -59,12 +59,13 @@ public class LocalTransformImpl extends AbstractLocalTransform
                               Map<String, Set<String>> strictMimetypeExceptions,
                               boolean retryTransformOnDifferentMimeType,
                               Set<TransformOption> transformsTransformOptions,
-                              LocalTransformServiceRegistry localTransformServiceRegistry, String baseUrl,
+                              LocalTransformServiceRegistry localTransformServiceRegistry,
+                              String baseUrl,
                               int startupRetryPeriodSeconds)
     {
         super(name, transformerDebug, mimetypeService, strictMimeTypeCheck, strictMimetypeExceptions,
                 retryTransformOnDifferentMimeType, transformsTransformOptions, localTransformServiceRegistry);
-        remoteTransformerClient = new RemoteTransformerClient(name, baseUrl);
+        remoteTransformerClient = new GrpcTransformerClient(name, baseUrl);
         remoteTransformerClient.setStartupRetryPeriodSeconds(startupRetryPeriodSeconds);
 
         checkAvailability();
