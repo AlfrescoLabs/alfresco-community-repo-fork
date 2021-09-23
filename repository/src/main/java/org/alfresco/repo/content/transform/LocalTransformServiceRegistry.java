@@ -77,16 +77,6 @@ public class LocalTransformServiceRegistry extends TransformServiceRegistryImpl 
     private Map<String, Set<String>> strictMimetypeExceptions;
     private boolean retryTransformOnDifferentMimeType;
 
-    private String grpcUrl;
-
-    public String getGrpcUrl() {
-        return grpcUrl;
-    }
-
-    public void setGrpcUrl(String grpcUrl) {
-        this.grpcUrl = grpcUrl;
-    }
-
     public void setPipelineConfigDir(String pipelineConfigDir)
     {
         this.pipelineConfigDir = pipelineConfigDir;
