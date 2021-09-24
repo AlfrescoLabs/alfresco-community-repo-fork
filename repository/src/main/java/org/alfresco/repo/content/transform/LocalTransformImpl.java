@@ -51,6 +51,7 @@ import static org.alfresco.repo.rendition2.RenditionDefinition2.SOURCE_NODE_REF;
 public class LocalTransformImpl extends AbstractLocalTransform
 {
     private GrpcTransformerClient remoteTransformerClient;
+    //private RemoteTransformerClient remoteTransformerClient;
 
     private boolean available = false;
 

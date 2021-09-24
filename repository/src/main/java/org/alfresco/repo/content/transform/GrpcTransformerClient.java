@@ -29,6 +29,7 @@ import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import org.alfresco.error.AlfrescoRuntimeException;
+import org.alfresco.repo.rendition2.LocalTransformClient;
 import org.alfresco.service.cmr.repository.ContentReader;
 import org.alfresco.service.cmr.repository.ContentWriter;
 import org.alfresco.transformer.grpc.MultipartFile;
@@ -39,8 +40,10 @@ import org.alfresco.util.Pair;
 import org.alfresco.util.exec.RuntimeExec;
 import org.alfresco.util.exec.RuntimeExec.ExecutionResult;
 import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
+import java.util.HashMap;
 
 public class GrpcTransformerClient
 {
@@ -56,6 +59,8 @@ public class GrpcTransformerClient
     // The initial value indicates we have not had a success yet.
     // Only changed once on success. This is stored so it can always be returned.
     private Pair<Boolean, String> checkResult = new Pair<>(null, null);
+
+    private static Log logger = LogFactory.getLog(GrpcTransformerClient.class);
 
     public GrpcTransformerClient(String name, String baseUrl)
     {
@@ -76,6 +81,7 @@ public class GrpcTransformerClient
     public void request(ContentReader reader, ContentWriter writer, String sourceMimetype, String sourceExtension,
                         String targetExtension, long timeoutMs, Log logger, String... args)
     {
+        logger.info("inside GrpcTransformerClient request method");
         if (args.length % 2 != 0)
         {
             throw new IllegalArgumentException("There should be a value for each request property");
@@ -86,6 +92,18 @@ public class GrpcTransformerClient
         try
         {
 
+            HashMap<String, String> transformOptions = new HashMap<>();
+            for (int i=0; i< args.length; i+=2)
+            {
+                if (args[i+1] != null)
+                {
+                    transformOptions.put(args[i], args[i + 1]);
+
+
+                }
+            }
+
+
             ManagedChannel channel = ManagedChannelBuilder.forTarget("localhost:9096").usePlaintext().build();
 
             TransformServiceGrpc.TransformServiceBlockingStub transformServiceBlockingStub = TransformServiceGrpc.newBlockingStub(channel);
@@ -95,9 +113,11 @@ public class GrpcTransformerClient
                             .setOrginalFileName("tmp."+sourceExtension)
                             .build())
                     .setOriginalFileName("tmp."+sourceExtension)
-                    .setSourceMediaType(sourceMimetype)
+                    .setSourceMimeType(sourceMimetype)
                     .setSourceExtension(sourceExtension)
                     .setTargetExtension(targetExtension)
+                        .setTargetMimeType(transformOptions.get("targetMimetype"))
+                        .putAllTransformRequestOptions(transformOptions)
                     .build();
 
             TransformReply transformReply = transformServiceBlockingStub.transform(transformRequest);
